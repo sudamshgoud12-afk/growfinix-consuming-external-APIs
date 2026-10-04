@@ -1,0 +1,178 @@
+package com.growfinx.task5;
+
+import jakarta.persistence.*;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+
+import java.time.LocalDateTime;
+
+@SpringBootApplication
+public class Task5Application {
+
+    public static void main(String[] args) {
+        SpringApplication.run(Task5Application.class, args);
+    }
+
+    // =========================
+    // WEB CLIENT
+    // =========================
+
+    @Bean
+    public WebClient webClient(
+            WebClient.Builder builder) {
+
+        return builder
+                .baseUrl("https://api.open-meteo.com")
+                .build();
+    }
+
+    // =========================
+    // ENTITY
+    // =========================
+
+    @Entity
+    @Table(name = "weather_records")
+    public static class WeatherRecord {
+
+        @Id
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
+        private Long id;
+
+        private double latitude;
+
+        private double longitude;
+
+        private String response;
+
+        private LocalDateTime createdAt;
+
+        public WeatherRecord() {
+        }
+
+        public WeatherRecord(
+                double latitude,
+                double longitude,
+                String response) {
+
+            this.latitude = latitude;
+            this.longitude = longitude;
+            this.response = response;
+            this.createdAt = LocalDateTime.now();
+        }
+
+        public Long getId() {
+            return id;
+        }
+
+        public double getLatitude() {
+            return latitude;
+        }
+
+        public double getLongitude() {
+            return longitude;
+        }
+
+        public String getResponse() {
+            return response;
+        }
+
+        public LocalDateTime getCreatedAt() {
+            return createdAt;
+        }
+    }
+
+    // =========================
+    // REPOSITORY
+    // =========================
+
+    public interface WeatherRepository
+            extends JpaRepository<WeatherRecord, Long> {
+    }
+
+    // =========================
+    // SERVICE
+    // =========================
+
+    @org.springframework.stereotype.Service
+    public static class WeatherService {
+
+        private final WebClient webClient;
+        private final WeatherRepository repository;
+
+        public WeatherService(
+                WebClient webClient,
+                WeatherRepository repository) {
+
+            this.webClient = webClient;
+            this.repository = repository;
+        }
+
+        public Mono<String> getWeather(
+                double latitude,
+                double longitude) {
+
+            return webClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/v1/forecast")
+                            .queryParam(
+                                    "latitude",
+                                    latitude
+                            )
+                            .queryParam(
+                                    "longitude",
+                                    longitude
+                            )
+                            .queryParam(
+                                    "current",
+                                    "temperature_2m"
+                            )
+                            .build())
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .doOnNext(response -> {
+
+                        WeatherRecord record =
+                                new WeatherRecord(
+                                        latitude,
+                                        longitude,
+                                        response
+                                );
+
+                        repository.save(record);
+                    });
+        }
+    }
+
+    // =========================
+    // CONTROLLER
+    // =========================
+
+    @RestController
+    @RequestMapping("/api/weather")
+    public static class WeatherController {
+
+        private final WeatherService service;
+
+        public WeatherController(
+                WeatherService service) {
+
+            this.service = service;
+        }
+
+        @GetMapping
+        public Mono<String> getWeather(
+                @RequestParam double latitude,
+                @RequestParam double longitude) {
+
+            return service.getWeather(
+                    latitude,
+                    longitude
+            );
+        }
+    }
+}
